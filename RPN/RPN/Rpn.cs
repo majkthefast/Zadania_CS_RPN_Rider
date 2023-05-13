@@ -1,54 +1,61 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using RPN.Exceptions;
+using RPN.Parsers;
 
 namespace RPN;
 
-public class Rpn
+public sealed class Rpn
 {
-    private readonly MyStack<int> _operators= new MyStack<int>();
-    private readonly Dictionary<string, Func<int, int, int>> _operationFunction = new Dictionary<string, Func<int, int, int>>();
+    private readonly Stack<int> _tokensStack = new Stack<int>(); // stos
+    private readonly Dictionary<string, IMathOperation> _math = new(); // słownik
+    private readonly IEnumerable<INumberParser> _parsers = new List<INumberParser> 
+    {
+        new DecimalParser(), 
+        new BinaryParser(),
+        new HexParser()
+    };
+
 
     public int EvalRpn(string input)
     {
-        _operationFunction["+"] = (fst, snd) => (fst + snd);
-        _operationFunction["-"] = (fst, snd) => (fst - snd);
-        _operationFunction["*"] = (fst, snd) => (fst * snd);
-        _operationFunction["/"] = (fst, snd) => (fst / snd);
+        _math["+"] = new CalculateSum();
+        _math["-"] = new CalculateSubstract();
+        _math["*"] = new CalculateMultiply();
+        _math["/"] = new CalculateDivide();
+        _math["!"] = new FactorialOperation();
+        _math["%"] = new CalculateModulo();
+        _math["avg"] = new CalculateAverage();
 
-        var splitInput = input.Split(' ');
-        foreach (var op in splitInput)
+        var splitInput = input.Split(' '); // dzieli stringa na tablicę stringów
+        
+        foreach (var op in splitInput) // dla każdego elementu tablicy
         {
-            if (IsNumber(op))
-                _operators.Push(Int32.Parse(op));
-            else
-            if (IsOperator(op))
+            bool parsedSuccessfully = false;
+            foreach (var numberParser in _parsers)
             {
-                var num1 = _operators.Pop();
-                var num2 = _operators.Pop();
-                _operators.Push(_operationFunction[op](num1, num2));
-                //_operators.Push(Operation(op)(num1, num2));
+                if (numberParser.TryParse(op, out var number)) // jeśli udało się sparsować
+                {
+                    _tokensStack.Push(number); // dodaj liczbę na stos
+                    parsedSuccessfully = true; 
+                    break;
+                }
             }
+
+            if (parsedSuccessfully) continue;
+            
+            if (!_math.ContainsKey(op)) // jeśli nie ma takiego klucza w słowniku
+                throw new UnexpectedTokenException($"Unexpected token: {op}"); // wyrzuć wyjątek
+            var operation = _math[op]; // pobierz wartość ze słownika
+
+            var opResult = operation.Execute(_tokensStack);  // wykonaj operację
+            _tokensStack.Push(opResult); 
         }
 
-        var result = _operators.Pop();
-        if (_operators.IsEmpty)
+        var result = _tokensStack.Pop(); // zdejmij ze stosu
+        if (_tokensStack.Count == 0) // jeśli stos jest pusty
         {
             return result;
         }
-        throw new InvalidOperationException();
+
+        throw new InvalidOperationException(); // wyrzuć wyjątek
     }
-
-    private bool IsNumber(String input) => Int32.TryParse(input, out _);
-
-    private bool IsOperator(String input) =>
-        input.Equals("+") || input.Equals("-") ||
-        input.Equals("*") || input.Equals("/");
-
-    private Func<int, int, int> Operation(String input) =>
-        (x, y) =>
-        (
-            (input.Equals("+") ? x + y :
-                (input.Equals("*") ? x * y : int.MinValue)
-            )
-        );
 }
